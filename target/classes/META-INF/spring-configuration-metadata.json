@@ -1,0 +1,73 @@
+{
+  "groups": [
+    {
+      "name": "resa",
+      "type": "com.wellness.resa.ResaProperties",
+      "sourceType": "com.wellness.resa.ResaProperties"
+    }
+  ],
+  "properties": [
+    {
+      "name": "resa.base-url",
+      "type": "java.lang.String",
+      "sourceType": "com.wellness.resa.ResaProperties"
+    },
+    {
+      "name": "resa.booking-opens-days-before",
+      "type": "java.lang.Integer",
+      "sourceType": "com.wellness.resa.ResaProperties",
+      "defaultValue": 0
+    },
+    {
+      "name": "resa.customer-id",
+      "type": "java.lang.Long",
+      "sourceType": "com.wellness.resa.ResaProperties",
+      "defaultValue": 0
+    },
+    {
+      "name": "resa.data-pool-id",
+      "type": "java.lang.Integer",
+      "sourceType": "com.wellness.resa.ResaProperties",
+      "defaultValue": 0
+    },
+    {
+      "name": "resa.email",
+      "type": "java.lang.String",
+      "sourceType": "com.wellness.resa.ResaProperties"
+    },
+    {
+      "name": "resa.password",
+      "type": "java.lang.String",
+      "sourceType": "com.wellness.resa.ResaProperties"
+    },
+    {
+      "name": "resa.retry-interval-ms",
+      "type": "java.lang.Long",
+      "sourceType": "com.wellness.resa.ResaProperties",
+      "defaultValue": 0
+    },
+    {
+      "name": "resa.retry-window-seconds",
+      "type": "java.lang.Integer",
+      "sourceType": "com.wellness.resa.ResaProperties",
+      "defaultValue": 0
+    },
+    {
+      "name": "resa.schedule",
+      "type": "java.util.Map<java.time.DayOfWeek,java.util.List<com.wellness.resa.ResaProperties$DesiredClass>>",
+      "sourceType": "com.wellness.resa.ResaProperties"
+    },
+    {
+      "name": "resa.supplier-id",
+      "type": "java.lang.Integer",
+      "sourceType": "com.wellness.resa.ResaProperties",
+      "defaultValue": 0
+    },
+    {
+      "name": "resa.timezone",
+      "type": "java.lang.String",
+      "sourceType": "com.wellness.resa.ResaProperties"
+    }
+  ],
+  "hints": []
+}

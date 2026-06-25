@@ -1,0 +1,50 @@
+resa:
+  base-url: https://wellnesssportclub.resamania.fr
+  timezone: Europe/Paris
+
+  # Constantes propres à ton club / ton compte (relevées dans la capture HAR).
+  supplier-id: 103
+  data-pool-id: 8989
+  customer-id: 5880238        # TON identifiant client de réservation
+                              # (distinct du userId de connexion — c'est normal)
+
+  booking-opens-days-before: 3
+  retry-window-seconds: 180   # durée des tentatives après minuit
+  retry-interval-ms: 2000     # délai entre deux tentatives
+
+  # Identifiants fournis par variables d'environnement (jamais en dur ici).
+  email: ${RESA_EMAIL:}
+  password: ${RESA_PASSWORD:}
+
+  # Ton planning souhaité. Jours en MAJUSCULES (MONDAY..SUNDAY).
+  # - time        : heure de début exacte du cours "HH:MM" (heure locale)
+  # - activity-id : OPTIONNEL (0 ou absent = non précisé). Sert à départager
+  #                 deux cours à la même heure ; un --dry-run te donne les valeurs.
+  # - label       : libellé libre pour les logs
+  schedule:
+    MONDAY:
+      - time: "12:15"
+        activity-id: 0
+        label: "Body Sculpt"
+      - time: "19:15"
+        label: "LM Core"
+    TUESDAY:
+      - time: "18:30"
+        label: "100% fessiers"
+    WEDNESDAY:
+      - time: "19:00"
+        label: "TRX Circuit"
+    SUNDAY:
+      - time: "11:00"
+        label: "RPM Gambetta"
+
+# Application sans serveur web : on n'expose aucune API HTTP.
+spring:
+  main:
+    web-application-type: none
+
+logging:
+  level:
+    com.wsc.resabot: INFO
+  pattern:
+    console: "%d{HH:mm:ss} %-5level %logger{0} - %msg%n"
