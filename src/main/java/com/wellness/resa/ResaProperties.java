@@ -22,6 +22,7 @@ public record ResaProperties(
         int bookingOpensDaysBefore,
         int retryWindowSeconds,
         long retryIntervalMs,
+        int preOpenLeadSeconds,
         String email,
         String password,
         Map<DayOfWeek, List<DesiredClass>> schedule

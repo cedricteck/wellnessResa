@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
@@ -33,7 +34,71 @@ public class BookingService {
         return props.zone();
     }
 
-    /** Appelé par le planificateur à minuit : réserve les cours de J+3. */
+    /**
+     * Réserve UN cours précis, déclenché à l'instant d'ouverture exact (J-N à l'heure du cours).
+     *
+     * <p>La tâche est programmée {@code preOpenLeadSeconds} avant l'ouverture : on se connecte
+     * et on charge le planning pendant cette avance, puis on attend l'instant exact avant de
+     * tenter la réservation en boucle (jusqu'à {@code retryWindowSeconds} après l'ouverture).
+     */
+    public void bookSingleCourse(LocalDate courseDate, DesiredClass w, Instant opening) {
+        log.info("Préparation : {} ({}) le {} — ouverture exacte à {}",
+                w.label(), w.time(), courseDate, ZonedDateTime.ofInstant(opening, zone()));
+        try {
+            DwrClient client = new DwrClient(props);
+            client.bootstrap();
+            client.authenticate();
+            Map<Long, SessionInfo> planning = client.loadPlanning(midnightMs(courseDate));
+            List<Long> matches = findSessions(planning, courseDate, w);
+            if (matches.isEmpty()) {
+                log.warn("  ✗ Aucune séance pour {} ({}) le {}.", w.label(), w.time(), courseDate);
+                return;
+            }
+            if (matches.size() > 1) {
+                log.warn("  ⚠ Plusieurs séances à {} : {} — précise activityId dans la config. "
+                        + "Je prends la première.", w.time(), matches);
+            }
+            long sessionId = matches.get(0);
+
+            // Attente jusqu'à l'instant d'ouverture exact (on est arrivé en avance).
+            long openMs = opening.toEpochMilli();
+            long waitMs = openMs - System.currentTimeMillis();
+            if (waitMs > 0) {
+                log.info("  ⏱ Connecté (séance {}). Ouverture dans {} s.", sessionId, waitMs / 1000);
+                sleep(waitMs);
+            }
+
+            long deadline = openMs + props.retryWindowSeconds() * 1000L;
+            while (System.currentTimeMillis() < deadline) {
+                try {
+                    if (client.checkAbo(sessionId) && client.book(sessionId)) {
+                        log.info("  ✅ RÉSERVÉ : {} (séance {})", w.label(), sessionId);
+                        return;
+                    }
+                    log.info("  ⏳ Pas encore ouvert pour {}, nouvelle tentative…", w.label());
+                } catch (Exception e) {
+                    log.info("  ⏳ Tentative échouée ({}), on retente…", shorten(e.getMessage()));
+                }
+                sleep(props.retryIntervalMs());
+            }
+            log.warn("  ❌ Échec final pour {}.", w.label());
+        } catch (Exception e) {
+            log.error("Échec réservation {} : {}", w.label(), e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Instant d'ouverture des réservations pour un cours : J-N exactement à l'heure de début
+     * (même heure locale, N jours plus tôt — gère l'heure d'été via {@link ZonedDateTime}).
+     */
+    public Instant openingInstant(LocalDate courseDate, DesiredClass w) {
+        LocalTime t = LocalTime.parse(w.time());
+        return ZonedDateTime.of(courseDate, t, zone())
+                .minusDays(props.bookingOpensDaysBefore())
+                .toInstant();
+    }
+
+    /** Mode test immédiat (--book-now) : réserve sans attendre l'ouverture, les cours de J+N. */
     public void runScheduledBooking() {
         LocalDate target = LocalDate.now(zone()).plusDays(props.bookingOpensDaysBefore());
         List<DesiredClass> wanted = desiredFor(target);
@@ -132,7 +197,7 @@ public class BookingService {
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
-    private List<DesiredClass> desiredFor(LocalDate target) {
+    public List<DesiredClass> desiredFor(LocalDate target) {
         if (props.schedule() == null) {
             return List.of();
         }

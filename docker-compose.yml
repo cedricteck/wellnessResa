@@ -1,0 +1,14 @@
+services:
+  resa-bot:
+    build: .
+    image: resa-bot:latest
+    container_name: resa-bot
+    restart: unless-stopped
+    environment:
+      TZ: Europe/Paris
+      # Identifiants de réservation — à définir dans un fichier .env (voir .env.example).
+      RESA_EMAIL: ${RESA_EMAIL}
+      RESA_PASSWORD: ${RESA_PASSWORD}
+    # Le planificateur tourne en continu : pas de mode CLI par défaut.
+    # Pour un test ponctuel, surcharge la commande, ex. :
+    #   docker compose run --rm resa-bot --dry-run

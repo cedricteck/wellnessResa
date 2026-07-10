@@ -38,6 +38,6 @@ public class CliRunner implements CommandLineRunner {
                 System.exit(0);
             }
         }
-        log.info("Aucun mode test demandé — en attente du déclenchement de minuit.");
+        log.info("Aucun mode test demandé — en attente des déclenchements programmés");
     }
 }

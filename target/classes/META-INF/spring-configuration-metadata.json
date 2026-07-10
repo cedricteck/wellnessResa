@@ -41,6 +41,12 @@
       "sourceType": "com.wellness.resa.ResaProperties"
     },
     {
+      "name": "resa.pre-open-lead-seconds",
+      "type": "java.lang.Integer",
+      "sourceType": "com.wellness.resa.ResaProperties",
+      "defaultValue": 0
+    },
+    {
       "name": "resa.retry-interval-ms",
       "type": "java.lang.Long",
       "sourceType": "com.wellness.resa.ResaProperties",

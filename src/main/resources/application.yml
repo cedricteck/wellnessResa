@@ -8,9 +8,12 @@ resa:
   customer-id: 5880238        # TON identifiant client de réservation
                               # (distinct du userId de connexion — c'est normal)
 
+  # L'ouverture des réservations se fait J-N exactement à l'HEURE DE DÉBUT du cours
+  # (et non à minuit). Ex. : cours lundi 19:15 -> ouverture vendredi 19:15.
   booking-opens-days-before: 3
-  retry-window-seconds: 180   # durée des tentatives après minuit
+  retry-window-seconds: 180   # durée des tentatives APRÈS l'instant d'ouverture
   retry-interval-ms: 2000     # délai entre deux tentatives
+  pre-open-lead-seconds: 30   # on se connecte ce délai AVANT l'ouverture, prêt à dégainer
 
   # Identifiants fournis par variables d'environnement (jamais en dur ici).
   email: ${RESA_EMAIL:}
@@ -23,11 +26,8 @@ resa:
   # - label       : libellé libre pour les logs
   schedule:
     MONDAY:
-      - time: "12:15"
-        activity-id: 0
-        label: "Body Sculpt"
-      - time: "19:15"
-        label: "LM Core"
+      - time: "16:00"
+        label: "TRX Gambetta"
     TUESDAY:
       - time: "18:30"
         label: "100% fessiers"
