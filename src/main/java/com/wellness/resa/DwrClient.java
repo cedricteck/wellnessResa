@@ -90,7 +90,14 @@ public class DwrClient {
     // ------------------------------------------------------------------
     // Appel DWR générique
     // ------------------------------------------------------------------
-    private String call(String script, String method, List<String> bodyLines, String page) throws Exception {
+
+    /**
+     * Envoi bas niveau d'un appel DWR 'plaincall'. Ne lève QUE si la réponse n'est pas du DWR
+     * exploitable (absence de {@code //#DWR-REPLY} : page de login, redirection, erreur serveur…).
+     * L'inspection du résultat métier — callback de succès ({@code _remoteHandleCallback}) vs
+     * exception applicative ({@code _remoteHandleException}) — est laissée à l'appelant.
+     */
+    private String callRaw(String script, String method, List<String> bodyLines, String page) throws Exception {
         batch++;
         StringBuilder b = new StringBuilder();
         for (String l : List.of(
@@ -117,7 +124,21 @@ public class DwrClient {
 
         HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
         String txt = resp.body();
-        if (txt.contains("_remoteHandleException") || !txt.contains("//#DWR-REPLY")) {
+        if (!txt.contains("//#DWR-REPLY")) {
+            throw new DwrException("Réponse DWR anormale pour " + script + "." + method
+                    + " : " + txt.substring(0, Math.min(300, txt.length())));
+        }
+        return txt;
+    }
+
+    /**
+     * Comme {@link #callRaw}, mais lève AUSSI sur exception applicative DWR
+     * ({@code _remoteHandleException}). À utiliser quand seul le cas nominal a du sens
+     * (authentification, chargement du planning…) et qu'une exception serveur est une vraie erreur.
+     */
+    private String call(String script, String method, List<String> bodyLines, String page) throws Exception {
+        String txt = callRaw(script, method, bodyLines, page);
+        if (txt.contains("_remoteHandleException")) {
             throw new DwrException("Réponse DWR anormale pour " + script + "." + method
                     + " : " + txt.substring(0, Math.min(300, txt.length())));
         }
@@ -216,23 +237,34 @@ public class DwrClient {
         return txt.contains("',true);") || txt.trim().endsWith(",true);");
     }
 
+    /**
+     * Réserve la séance. Renvoie {@code true} UNIQUEMENT sur vrai succès : le serveur a renvoyé
+     * un callback ({@code _remoteHandleCallback}) sans exception applicative. Un refus « trop tôt »
+     * (ex. {@code MinAnticipatedBookingDelay} tant que l'ouverture n'est pas là) renvoie
+     * {@code false} — l'appelant peut alors retenter sans traiter ça comme une erreur.
+     */
     public boolean book(long sessionId) throws Exception {
         List<String> body = List.of(
                 "c0-param0=boolean:false",
                 "c0-param1=number:" + sessionId,
                 "c0-param2=number:" + props.customerId(),
                 "c0-param3=number:1");
-        call("OnlineRemote", "bookForCustomer", body, PLANNING_PAGE);
-        return true;
+        String txt = callRaw("OnlineRemote", "bookForCustomer", body, PLANNING_PAGE);
+        return txt.contains("_remoteHandleCallback") && !txt.contains("_remoteHandleException");
     }
 
+    /**
+     * Annule la réservation. Renvoie {@code true} UNIQUEMENT sur vrai succès : le serveur a renvoyé
+     * un callback ({@code _remoteHandleCallback}) sans exception applicative. Une réponse serveur
+     * anormale (exception métier) renvoie {@code false} plutôt que de la traiter comme un succès.
+     */
     public boolean unbook(long sessionId) throws Exception {
         List<String> body = List.of(
                 "c0-param0=boolean:false",
                 "c0-param1=number:" + sessionId,
                 "c0-param2=number:" + props.customerId());
-        call("OnlineRemote", "unbookForCustomer", body, PLANNING_PAGE);
-        return true;
+        String txt = callRaw("OnlineRemote", "unbookForCustomer", body, PLANNING_PAGE);
+        return txt.contains("_remoteHandleCallback") && !txt.contains("_remoteHandleException");
     }
 
     /** Réplique le comportement de encodeURIComponent() (le ! n'est pas encodé, le @ devient %40). */

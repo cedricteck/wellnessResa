@@ -5,15 +5,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Orchestration de la réservation : recherche de la séance dans le planning,
@@ -34,6 +39,14 @@ public class BookingService {
         return props.zone();
     }
 
+    /** Ouvre une session DWR authentifiée (cookie + connexion) prête à charger le planning / réserver. */
+    private DwrClient connect() throws Exception {
+        DwrClient client = new DwrClient(props);
+        client.bootstrap();
+        client.authenticate();
+        return client;
+    }
+
     /**
      * Réserve UN cours précis, déclenché à l'instant d'ouverture exact (J-N à l'heure du cours).
      *
@@ -45,20 +58,12 @@ public class BookingService {
         log.info("Préparation : {} ({}) le {} — ouverture exacte à {}",
                 w.label(), w.time(), courseDate, ZonedDateTime.ofInstant(opening, zone()));
         try {
-            DwrClient client = new DwrClient(props);
-            client.bootstrap();
-            client.authenticate();
+            DwrClient client = connect();
             Map<Long, SessionInfo> planning = client.loadPlanning(midnightMs(courseDate));
-            List<Long> matches = findSessions(planning, courseDate, w);
-            if (matches.isEmpty()) {
-                log.warn("  ✗ Aucune séance pour {} ({}) le {}.", w.label(), w.time(), courseDate);
+            Long sessionId = resolveSession(planning, courseDate, w);
+            if (sessionId == null) {
                 return;
             }
-            if (matches.size() > 1) {
-                log.warn("  ⚠ Plusieurs séances à {} : {} — précise activityId dans la config. "
-                        + "Je prends la première.", w.time(), matches);
-            }
-            long sessionId = matches.get(0);
 
             // Attente jusqu'à l'instant d'ouverture exact (on est arrivé en avance).
             long openMs = opening.toEpochMilli();
@@ -67,21 +72,7 @@ public class BookingService {
                 log.info("  ⏱ Connecté (séance {}). Ouverture dans {} s.", sessionId, waitMs / 1000);
                 sleep(waitMs);
             }
-
-            long deadline = openMs + props.retryWindowSeconds() * 1000L;
-            while (System.currentTimeMillis() < deadline) {
-                try {
-                    if (client.checkAbo(sessionId) && client.book(sessionId)) {
-                        log.info("  ✅ RÉSERVÉ : {} (séance {})", w.label(), sessionId);
-                        return;
-                    }
-                    log.info("  ⏳ Pas encore ouvert pour {}, nouvelle tentative…", w.label());
-                } catch (Exception e) {
-                    log.info("  ⏳ Tentative échouée ({}), on retente…", shorten(e.getMessage()));
-                }
-                sleep(props.retryIntervalMs());
-            }
-            log.warn("  ❌ Échec final pour {}.", w.label());
+            bookWithRetry(client, w, sessionId, openMs + props.retryWindowSeconds() * 1000L);
         } catch (Exception e) {
             log.error("Échec réservation {} : {}", w.label(), e.getMessage(), e);
         }
@@ -108,38 +99,119 @@ public class BookingService {
             return;
         }
         try {
-            DwrClient client = new DwrClient(props);
-            client.bootstrap();
-            client.authenticate();
+            DwrClient client = connect();
             long deadline = System.currentTimeMillis() + props.retryWindowSeconds() * 1000L;
             Map<Long, SessionInfo> planning = client.loadPlanning(midnightMs(target));
             for (DesiredClass w : wanted) {
-                attempt(client, planning, target, w, deadline);
+                Long sessionId = resolveSession(planning, target, w);
+                if (sessionId != null) {
+                    log.info("  → {} : séance {}", w.label(), sessionId);
+                    bookWithRetry(client, w, sessionId, deadline);
+                }
             }
         } catch (Exception e) {
             log.error("Échec du run de réservation : {}", e.getMessage(), e);
         }
     }
 
-    private void attempt(DwrClient client, Map<Long, SessionInfo> planning,
-                         LocalDate target, DesiredClass w, long deadline) {
-        List<Long> matches = findSessions(planning, target, w);
-        if (matches.isEmpty()) {
-            log.warn("  ✗ Aucune séance pour {} ({}) le {}.", w.label(), w.time(), target);
+    /**
+     * Mode test : pour CHAQUE créneau du planning configuré (tous les jours de {@code resa.schedule}),
+     * résout la prochaine occurrence du jour, charge le planning réel et identifie la séance qui
+     * SERAIT réservée (matching par label) — sans jamais réserver. Reflète exactement ce que le
+     * planificateur ferait le moment venu.
+     */
+    public void dryRun() throws Exception {
+        if (props.schedule() == null || props.schedule().isEmpty()) {
+            log.info("Aucun créneau configuré dans resa.schedule.");
             return;
         }
-        if (matches.size() > 1) {
-            log.warn("  ⚠ Plusieurs séances à {} : {} — précise activityId dans la config. "
-                    + "Je prends la première.", w.time(), matches);
-        }
-        long sessionId = matches.get(0);
-        log.info("  → {} : séance {}", w.label(), sessionId);
+        DwrClient client = connect();
 
+        log.info("=== DRY-RUN : séances qui SERAIENT réservées (aucune réservation effectuée) ===");
+        Map<LocalDate, Map<Long, SessionInfo>> planningByDate = new HashMap<>();
+        List<DayOfWeek> days = new ArrayList<>(props.schedule().keySet());
+        days.sort(Comparator.comparing(this::nextOccurrence)); // ordre chronologique des occurrences
+
+        for (DayOfWeek courseDay : days) {
+            LocalDate courseDate = nextOccurrence(courseDay);
+            Map<Long, SessionInfo> planning = planningByDate.get(courseDate);
+            if (planning == null) {
+                try {
+                    planning = client.loadPlanning(midnightMs(courseDate));
+                } catch (Exception ex) {
+                    log.warn("  Impossible de charger le planning du {} : {}", courseDate, ex.getMessage());
+                    continue;
+                }
+                planningByDate.put(courseDate, planning);
+            }
+            for (DesiredClass w : props.schedule().get(courseDay)) {
+                Long sessionId = resolveSession(planning, courseDate, w);
+                if (sessionId == null) {
+                    continue;
+                }
+                SessionInfo s = planning.get(sessionId);
+                Instant opening = openingInstant(courseDate, w);
+                log.info("  ✓ {} {} ({}) -> séance {} \"{}\" | ouverture {}",
+                        courseDate, w.time(), w.label(), sessionId, s.activityName(),
+                        ZonedDateTime.ofInstant(opening, zone()));
+            }
+        }
+    }
+
+    /** Prochaine date (aujourd'hui inclus) tombant sur le jour de semaine demandé. */
+    private LocalDate nextOccurrence(DayOfWeek day) {
+        LocalDate d = LocalDate.now(zone());
+        while (d.getDayOfWeek() != day) {
+            d = d.plusDays(1);
+        }
+        return d;
+    }
+
+    public void bookNow(long sessionId) throws Exception {
+        DwrClient client = connect();
+        boolean ok = client.checkAbo(sessionId) && client.book(sessionId);
+        log.info(ok ? "Réservation OK (séance {})" : "Échec réservation (séance {})", sessionId);
+    }
+
+    public void unbook(long sessionId) throws Exception {
+        DwrClient client = connect();
+        boolean ok = client.unbook(sessionId);
+        log.info(ok ? "Annulation OK (séance {})" : "Échec annulation (séance {})", sessionId);
+    }
+
+    // ------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------
+
+    /**
+     * Résout LA séance à réserver pour un créneau (matching par label), avec les logs associés
+     * (aucune séance / plusieurs séances au même créneau). Renvoie l'id de séance, ou {@code null}
+     * si rien ne correspond.
+     */
+    private Long resolveSession(Map<Long, SessionInfo> planning, LocalDate date, DesiredClass w) {
+        List<Long> matches = findSessions(planning, date, w);
+        if (matches.isEmpty()) {
+            log.warn("  ✗ Aucune séance pour {} ({}) le {}. Cours à cette heure : {}",
+                    w.label(), w.time(), date, candidatesAt(planning, date, w));
+            return null;
+        }
+        if (matches.size() > 1) {
+            log.warn("  ⚠ Plusieurs séances pour {} à {} : {} — précise activityId dans la config. "
+                    + "Je prends la première.", w.label(), w.time(), matches);
+        }
+        return matches.get(0);
+    }
+
+    /**
+     * Tente la réservation en boucle jusqu'à {@code deadline} (instant epoch ms), en respectant
+     * {@code retryIntervalMs} entre deux essais. Renvoie {@code true} dès que la séance est réservée.
+     */
+    private boolean bookWithRetry(DwrClient client, DesiredClass w, long sessionId, long deadline) {
         while (System.currentTimeMillis() < deadline) {
             try {
                 if (client.checkAbo(sessionId) && client.book(sessionId)) {
                     log.info("  ✅ RÉSERVÉ : {} (séance {})", w.label(), sessionId);
-                    return;
+                    return true;
                 }
                 log.info("  ⏳ Pas encore ouvert pour {}, nouvelle tentative…", w.label());
             } catch (Exception e) {
@@ -148,55 +220,9 @@ public class BookingService {
             sleep(props.retryIntervalMs());
         }
         log.warn("  ❌ Échec final pour {}.", w.label());
+        return false;
     }
 
-    /** Mode test : connexion + planning de J+3, sans réserver. */
-    public void dryRun() throws Exception {
-        LocalDate target = LocalDate.now(zone()).plusDays(props.bookingOpensDaysBefore());
-        DwrClient client = new DwrClient(props);
-        client.bootstrap();
-        client.authenticate();
-        Map<Long, SessionInfo> planning = client.loadPlanning(midnightMs(target));
-        log.info("{} séances trouvées le {} :", planning.size(), target);
-        planning.entrySet().stream()
-                .sorted((a, b) -> Long.compare(
-                        a.getValue().beginMs() == null ? 0 : a.getValue().beginMs(),
-                        b.getValue().beginMs() == null ? 0 : b.getValue().beginMs()))
-                .forEach(e -> {
-                    SessionInfo s = e.getValue();
-                    String when = s.beginMs() == null ? "??:??"
-                            : ZonedDateTime.ofInstant(
-                                    java.time.Instant.ofEpochMilli(s.beginMs()), zone())
-                            .toLocalTime().toString();
-                    log.info("  {}  session={}  activityId={}", when, e.getKey(), s.activityId());
-                });
-        log.info("Ce que je RÉSERVERAIS (sans le faire) :");
-        for (DesiredClass w : desiredFor(target)) {
-            List<Long> matches = findSessions(planning, target, w);
-            log.info("  {} ({}) -> {}", w.label(), w.time(),
-                    matches.isEmpty() ? "AUCUNE" : matches);
-        }
-    }
-
-    public void bookNow(long sessionId) throws Exception {
-        DwrClient client = new DwrClient(props);
-        client.bootstrap();
-        client.authenticate();
-        boolean ok = client.checkAbo(sessionId) && client.book(sessionId);
-        log.info(ok ? "Réservation OK (séance {})" : "Échec réservation (séance {})", sessionId);
-    }
-
-    public void unbook(long sessionId) throws Exception {
-        DwrClient client = new DwrClient(props);
-        client.bootstrap();
-        client.authenticate();
-        client.unbook(sessionId);
-        log.info("Annulation OK (séance {})", sessionId);
-    }
-
-    // ------------------------------------------------------------------
-    // Helpers
-    // ------------------------------------------------------------------
     public List<DesiredClass> desiredFor(LocalDate target) {
         if (props.schedule() == null) {
             return List.of();
@@ -204,23 +230,49 @@ public class BookingService {
         return props.schedule().getOrDefault(target.getDayOfWeek(), List.of());
     }
 
+    /**
+     * Séances correspondant au créneau souhaité : d'abord par heure (±60 s), puis départagées
+     * par LABEL (nom du cours) — c'est ce qui permet de choisir le bon cours quand plusieurs
+     * séances tombent au même horaire, sans dépendre de l'activityId (instable de semaine en
+     * semaine). L'activityId reste un filtre optionnel additionnel si renseigné dans la config.
+     */
     private List<Long> findSessions(Map<Long, SessionInfo> planning, LocalDate target, DesiredClass w) {
         LocalTime t = LocalTime.parse(w.time());
         long targetMs = ZonedDateTime.of(target, t, zone()).toInstant().toEpochMilli();
         boolean filterActivity = w.activityId() != null && w.activityId() != 0;
+        boolean filterLabel = w.label() != null && !w.label().isBlank();
+        String wantLabel = filterLabel ? normalize(w.label()) : null;
         List<Long> out = new ArrayList<>();
         for (Map.Entry<Long, SessionInfo> e : planning.entrySet()) {
             SessionInfo s = e.getValue();
-            if (s.beginMs() == null) {
+            if (s.beginMs() == null || Math.abs(s.beginMs() - targetMs) > 60_000) {
+                continue; // mauvaise heure (tolérance 60 s)
+            }
+            if (filterActivity && !Objects.equals(s.activityId(), w.activityId())) {
                 continue;
             }
-            if (Math.abs(s.beginMs() - targetMs) <= 60_000) { // tolérance 60 s
-                if (!filterActivity || Objects.equals(s.activityId(), w.activityId())) {
-                    out.add(e.getKey());
-                }
+            if (filterLabel && !wantLabel.equals(normalize(s.activityName()))) {
+                continue;
             }
+            out.add(e.getKey());
         }
         return out;
+    }
+
+    /** Liste lisible des cours présents dans la fenêtre horaire (diagnostic quand rien ne matche). */
+    private String candidatesAt(Map<Long, SessionInfo> planning, LocalDate target, DesiredClass w) {
+        LocalTime t = LocalTime.parse(w.time());
+        long targetMs = ZonedDateTime.of(target, t, zone()).toInstant().toEpochMilli();
+        String list = planning.values().stream()
+                .filter(s -> s.beginMs() != null && Math.abs(s.beginMs() - targetMs) <= 60_000)
+                .map(s -> "\"" + s.activityName() + "\" (activityId=" + s.activityId() + ")")
+                .collect(Collectors.joining(", "));
+        return list.isEmpty() ? "aucun" : list;
+    }
+
+    /** Normalise un libellé pour comparaison : sans casse ni espaces superflus. */
+    private static String normalize(String s) {
+        return s == null ? "" : s.trim().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
     }
 
     private long midnightMs(LocalDate d) {
