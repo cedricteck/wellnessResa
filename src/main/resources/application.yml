@@ -16,8 +16,13 @@ resa:
   pre-open-lead-seconds: 30   # on se connecte ce délai AVANT l'ouverture, prêt à dégainer
 
   # Identifiants fournis par variables d'environnement (jamais en dur ici).
-  email: ${RESA_EMAIL:yash0302@hotmail.com}
-  password: ${RESA_PASSWORD:Jedi17112021!}
+  email: ${RESA_EMAIL}
+  password: ${RESA_PASSWORD}
+
+  # Fichier de persistance du planning édité depuis l'IHM. S'il existe, il fait
+  # AUTORITÉ sur le bloc "schedule" ci-dessous (qui ne sert alors que de valeur
+  # initiale, au premier démarrage). Supprime-le pour repartir du YAML.
+  schedule-file: data/schedule.json
 
   # Fichier de persistance du planning édité depuis l'IHM. S'il existe, il fait
   # AUTORITÉ sur le bloc "schedule" ci-dessous (qui ne sert alors que de valeur
