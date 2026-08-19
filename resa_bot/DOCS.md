@@ -8,25 +8,30 @@ avec une interface de gestion du planning intégrée à la barre latérale Home 
 **Nécessite Home Assistant OS ou Supervised** : les add-ons n'existent pas sur les
 installations HA Container ni HA Core.
 
-### Par dépôt (recommandé)
-
 1. **Paramètres → Modules complémentaires → Boutique → ⋮ → Dépôts**
 2. Ajouter `https://github.com/cedricteck/wellnessResa`
 3. Installer **Resa Bot** dans la liste qui apparaît, puis **Démarrer**.
 
-L'image est construite sur l'appareil : le premier démarrage télécharge Maven et les
-dépendances Spring (quelques minutes, davantage sur Raspberry Pi).
+L'add-on utilise une **image préconstruite** (`image:` dans `config.yaml`) : la machine
+Home Assistant ne compile rien, elle tire l'image publiée sur `ghcr.io`. L'installation
+se réduit à un téléchargement, et il n'y a plus de bouton *Reconstruire* à utiliser.
 
-> L'add-on compile les sources **depuis GitHub**, pas depuis ta copie locale. Toute
-> modification du code doit donc être poussée sur la branche `master` avant de
-> reconstruire. Pour forcer une reconstruction, incrémente `version` dans
-> `config.yaml` puis relance la mise à jour de l'add-on.
+## Publier une nouvelle version
 
-### En add-on local
+Le cycle se fait depuis le poste de développement :
 
-Copier le dossier `resa_bot/` dans le partage `/addons` de Home Assistant (via
-l'add-on Samba ou SSH), puis **Boutique → ⋮ → Vérifier les mises à jour**. Utile pour
-tester une variante de `config.yaml` sans toucher au dépôt.
+1. modifier le code, puis incrémenter `version` dans `resa_bot/config.yaml` ;
+2. `./resa_bot/publish.sh` — compile le jar, construit l'image, la pousse sur le
+   registre (le tag de l'image est la `version` de `config.yaml`) ;
+3. committer et pousser le dépôt, pour que le Supervisor voie la nouvelle version ;
+4. dans Home Assistant : **Mettre à jour** sur la page de l'add-on.
+
+Prérequis, une seule fois : `docker login ghcr.io` avec un jeton personnel disposant de
+`write:packages`, puis rendre le paquet **public** sur GitHub — sans quoi le Supervisor,
+qui n'a pas tes identifiants, ne pourra pas le tirer.
+
+Pour une machine ARM (Raspberry Pi), publier aussi `./resa_bot/publish.sh aarch64` et
+ajouter `aarch64` à la liste `arch:` de `config.yaml`.
 
 ## Configuration
 

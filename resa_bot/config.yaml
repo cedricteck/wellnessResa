@@ -1,15 +1,18 @@
 name: Resa Bot
-version: "1.0.3"
+version: "1.0.4"
 slug: resa_bot
 description: Réservation automatique des cours Wellness Sport Club (Resamania / DWR)
 url: https://github.com/cedricteck/wellnessResa/tree/master/resa_bot
 
+# N'ajoute une architecture ici QUE si l'image correspondante est publiée
+# (resa_bot/publish.sh aarch64), sinon le Supervisor cherchera une image inexistante.
 arch:
-  - aarch64
   - amd64
 
-# L'image est construite sur l'appareil (base Home Assistant + JRE), voir build.yaml.
-# Pas de clé "image" : pas de registre à alimenter.
+# Image préconstruite : la machine Home Assistant ne compile plus rien, elle tire
+# cette image au tag égal à "version" ci-dessus. {arch} est remplacé par le
+# Supervisor. Publication : resa_bot/publish.sh
+image: ghcr.io/cedricteck/resa-bot-{arch}
 
 # s6-overlay est fourni par l'image de base : on désactive l'init de Docker.
 init: false

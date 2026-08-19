@@ -69,10 +69,20 @@ complémentaires → Boutique → ⋮ → Dépôts → `https://github.com/cedri
 - Le planning reste un JSON, dans `/data/schedule.json` : persisté par le Supervisor
   et inclus dans les sauvegardes Home Assistant. Ni base de données, ni historique.
 
-L'add-on compile les sources **depuis GitHub** (le contexte de build d'un add-on est
-son propre dossier, il ne peut pas atteindre `../src`) : pousse tes modifications sur
-`master` avant de reconstruire, et incrémente `version` dans `resa_bot/config.yaml`
-pour déclencher la mise à jour. Détails dans [`resa_bot/DOCS.md`](resa_bot/DOCS.md).
+L'add-on utilise une **image préconstruite** : rien ne compile sur la machine Home
+Assistant. Le cycle de publication se fait depuis ce dépôt :
+
+```bash
+# 1. incrémenter "version" dans resa_bot/config.yaml
+./resa_bot/publish.sh            # compile le jar, construit et pousse l'image
+git commit -am "..." && git push  # pour que le Supervisor voie la nouvelle version
+# 2. dans Home Assistant : "Mettre à jour" sur la page de l'add-on
+```
+
+`publish.sh` compile le jar **hors conteneur**, avec le proxy et le cache Maven du
+poste, puis l'emballe dans l'image de base Home Assistant. Le JRE y est recopié depuis
+`eclipse-temurin:17-jre` : le proxy d'entreprise renvoie un 403 sur le `.deb` de
+l'OpenJDK Debian. Détails dans [`resa_bot/DOCS.md`](resa_bot/DOCS.md).
 
 ## Derrière un proxy d'entreprise
 
@@ -182,5 +192,5 @@ src/main/resources/
   templates/                # schedule.html, planning.html, fragments.html
   static/css/app.css
 repository.yaml             # dépôt d'add-ons Home Assistant
-resa_bot/                   # l'add-on : config.yaml, build.yaml, Dockerfile, run.sh, DOCS.md
+resa_bot/                   # l'add-on : config.yaml, Dockerfile, run.sh, publish.sh, DOCS.md
 ```

@@ -3,12 +3,23 @@
 # configuration Spring, puis lance l'application.
 set -e
 
-bashio::config.require 'email'
-bashio::config.require 'password'
+OPTIONS=/data/options.json
+
+# Contrôle des identifiants directement dans les options, sans passer par
+# bashio::config.require : celui-ci interroge l'API du Superviseur, ce qui ajoute
+# une dépendance au démarrage et rend l'image intestable hors de Home Assistant.
+# Le schéma de config.yaml les déclare déjà obligatoires — ceci n'est qu'un
+# garde-fou avec un message clair.
+for key in email password; do
+    if [ -z "$(jq -r --arg k "$key" '.[$k] // ""' "$OPTIONS")" ]; then
+        bashio::log.fatal "L'option '$key' est vide : renseigne-la dans l'onglet Configuration de l'add-on."
+        exit 1
+    fi
+done
 
 # Fuseau utilisé aussi bien par la JVM que par le calcul des heures d'ouverture.
 export TZ
-TZ="$(bashio::config 'timezone')"
+TZ="$(jq -r '.timezone // "Europe/Paris"' "$OPTIONS")"
 
 # Options de l'add-on -> propriétés Spring. On passe par jq plutôt que par une
 # concaténation de chaînes : l'échappement JSON du mot de passe (guillemets,
@@ -31,7 +42,7 @@ SPRING_APPLICATION_JSON="$(jq -c '{
     "schedule-file": "/data/schedule.json"
   },
   logging: { level: { "com.wellness.resa": .log_level } }
-}' /data/options.json)"
+}' "$OPTIONS")"
 export SPRING_APPLICATION_JSON
 
 bashio::log.info "Fuseau : ${TZ} — planning : /data/schedule.json"

@@ -3,3 +3,4 @@ target/
 *.iml
 .env
 data/
+resa_bot/app.jar
