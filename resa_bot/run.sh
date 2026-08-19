@@ -47,8 +47,22 @@ bashio::log.info "IHM disponible dans la barre latérale Home Assistant (ingress
 #   temps : la perte d'optimisation à chaud est sans conséquence ici.
 # - UseSerialGC : sur une machine à peu de cœurs, G1 coûte des threads et de la
 #   mémoire sans rien apporter à une application aussi peu active.
+# - ErrorFile dans /data : le rapport de crash de la JVM survit au redémarrage du
+#   conteneur (et part dans les sauvegardes), sinon il est perdu avec le conteneur.
+
+# -XX:UseAVX=0 : VirtualBox virtualise mal les instructions vectorielles AVX émises
+# par le JIT — c'est le contournement classique des plantages de JVM sous VirtualBox.
+# L'option n'existe QUE sur x86 : sur ARM (Raspberry Pi), la JVM refuserait de
+# démarrer avec un "Unrecognized VM option".
+JVM_ARCH_OPTS=""
+if [ "$(uname -m)" = "x86_64" ]; then
+    JVM_ARCH_OPTS="-XX:UseAVX=0"
+fi
+
 exec java \
     -XX:MaxRAMPercentage=75 \
     -XX:TieredStopAtLevel=1 \
     -XX:+UseSerialGC \
+    -XX:ErrorFile=/data/hs_err_%p.log \
+    ${JVM_ARCH_OPTS} \
     -jar /opt/resa-bot/app.jar
