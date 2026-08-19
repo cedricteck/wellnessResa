@@ -37,6 +37,18 @@ export SPRING_APPLICATION_JSON
 bashio::log.info "Fuseau : ${TZ} — planning : /data/schedule.json"
 bashio::log.info "IHM disponible dans la barre latérale Home Assistant (ingress)."
 
-# MaxRAMPercentage : la JVM respecte la limite mémoire du conteneur au lieu de
-# viser la RAM de la machine entière (utile sur Raspberry Pi).
-exec java -XX:MaxRAMPercentage=75 -jar /opt/resa-bot/app.jar
+# Réglages JVM :
+# - MaxRAMPercentage : la JVM respecte la limite mémoire du conteneur au lieu de
+#   viser la RAM de la machine entière (utile sur Raspberry Pi).
+# - TieredStopAtLevel=1 : compilateur C1 uniquement. Le JIT C2 de ce JRE (Debian
+#   17.0.20+8) a fait tomber la VM en SIGSEGV dans Node::disconnect_inputs ; se
+#   limiter à C1 évite ce chemin de code et réduit nettement le temps de démarrage
+#   (23 s observées sur un boîtier peu puissant). L'application dort l'essentiel du
+#   temps : la perte d'optimisation à chaud est sans conséquence ici.
+# - UseSerialGC : sur une machine à peu de cœurs, G1 coûte des threads et de la
+#   mémoire sans rien apporter à une application aussi peu active.
+exec java \
+    -XX:MaxRAMPercentage=75 \
+    -XX:TieredStopAtLevel=1 \
+    -XX:+UseSerialGC \
+    -jar /opt/resa-bot/app.jar

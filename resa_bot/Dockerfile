@@ -36,4 +36,4 @@ CMD [ "/run.sh" ]
 LABEL io.hass.name="Resa Bot" \
       io.hass.description="Réservation automatique des cours Wellness Sport Club" \
       io.hass.type="addon" \
-      io.hass.version="1.0.1"
+      io.hass.version="1.0.2"
