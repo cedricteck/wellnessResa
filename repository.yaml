@@ -1,0 +1,6 @@
+# Déclare ce dépôt comme dépôt d'add-ons Home Assistant.
+# Ajout dans HA : Paramètres > Modules complémentaires > Boutique > ⋮ > Dépôts
+#   https://github.com/cedricteck/wellnessResa
+name: Resa Bot (Wellness Sport Club)
+url: https://github.com/cedricteck/wellnessResa
+maintainer: Cédric Maréchal

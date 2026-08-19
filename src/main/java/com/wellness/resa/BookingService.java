@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -18,6 +19,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -29,10 +31,20 @@ public class BookingService {
 
     private static final Logger log = LoggerFactory.getLogger(BookingService.class);
 
-    private final ResaProperties props;
+    /** Durée de validité du planning mis en cache pour l'IHM (une lecture DWR = login + requête). */
+    private static final Duration UI_CACHE_TTL = Duration.ofMinutes(2);
 
-    public BookingService(ResaProperties props) {
+    private final ResaProperties props;
+    private final ScheduleStore store;
+
+    /** Cache des plannings affichés par l'IHM, par date. */
+    private final Map<LocalDate, CachedPlanning> uiCache = new ConcurrentHashMap<>();
+
+    private record CachedPlanning(Instant loadedAt, List<PlanningEntry> entries) {}
+
+    public BookingService(ResaProperties props, ScheduleStore store) {
         this.props = props;
+        this.store = store;
     }
 
     private ZoneId zone() {
@@ -121,15 +133,16 @@ public class BookingService {
      * planificateur ferait le moment venu.
      */
     public void dryRun() throws Exception {
-        if (props.schedule() == null || props.schedule().isEmpty()) {
-            log.info("Aucun créneau configuré dans resa.schedule.");
+        Map<DayOfWeek, List<DesiredClass>> schedule = store.schedule();
+        if (schedule.isEmpty()) {
+            log.info("Aucun créneau dans le planning souhaité.");
             return;
         }
         DwrClient client = connect();
 
         log.info("=== DRY-RUN : séances qui SERAIENT réservées (aucune réservation effectuée) ===");
         Map<LocalDate, Map<Long, SessionInfo>> planningByDate = new HashMap<>();
-        List<DayOfWeek> days = new ArrayList<>(props.schedule().keySet());
+        List<DayOfWeek> days = new ArrayList<>(schedule.keySet());
         days.sort(Comparator.comparing(this::nextOccurrence)); // ordre chronologique des occurrences
 
         for (DayOfWeek courseDay : days) {
@@ -144,7 +157,7 @@ public class BookingService {
                 }
                 planningByDate.put(courseDate, planning);
             }
-            for (DesiredClass w : props.schedule().get(courseDay)) {
+            for (DesiredClass w : schedule.get(courseDay)) {
                 Long sessionId = resolveSession(planning, courseDate, w);
                 if (sessionId == null) {
                     continue;
@@ -158,8 +171,50 @@ public class BookingService {
         }
     }
 
+    /**
+     * Planning RÉEL du club pour une date, trié par heure puis par nom, à destination de l'IHM.
+     *
+     * <p>Chaque lecture coûte une connexion DWR complète : le résultat est donc mis en cache
+     * {@value #UI_CACHE_TTL} (voir {@link #UI_CACHE_TTL}) et {@code forceRefresh} permet de
+     * l'ignorer depuis le bouton « Rafraîchir ».
+     */
+    public List<PlanningEntry> planningFor(LocalDate date, boolean forceRefresh) throws Exception {
+        CachedPlanning cached = uiCache.get(date);
+        if (!forceRefresh && cached != null
+                && Duration.between(cached.loadedAt(), Instant.now()).compareTo(UI_CACHE_TTL) < 0) {
+            return cached.entries();
+        }
+        DwrClient client = connect();
+        Map<Long, SessionInfo> planning = client.loadPlanning(midnightMs(date));
+
+        long dayStart = midnightMs(date);
+        long dayEnd = midnightMs(date.plusDays(1));
+        List<DesiredClass> wanted = store.forDay(date.getDayOfWeek());
+        List<PlanningEntry> entries = new ArrayList<>();
+        for (Map.Entry<Long, SessionInfo> e : planning.entrySet()) {
+            SessionInfo s = e.getValue();
+            if (s.beginMs() == null || s.beginMs() < dayStart || s.beginMs() >= dayEnd) {
+                continue; // la réponse DWR peut contenir des séances hors de la journée demandée
+            }
+            LocalTime time = Instant.ofEpochMilli(s.beginMs()).atZone(zone()).toLocalTime();
+            entries.add(new PlanningEntry(e.getKey(), time, s.activityName(), s.activityId(),
+                    isWanted(wanted, time, s.activityName())));
+        }
+        entries.sort(Comparator.comparing(PlanningEntry::time).thenComparing(PlanningEntry::displayName));
+
+        uiCache.put(date, new CachedPlanning(Instant.now(), entries));
+        return entries;
+    }
+
+    /** Vrai si un créneau souhaité correspond à cette séance (même heure à la minute, même label). */
+    private static boolean isWanted(List<DesiredClass> wanted, LocalTime time, String activityName) {
+        return wanted.stream().anyMatch(w ->
+                LocalTime.parse(w.time()).equals(time.withSecond(0).withNano(0))
+                        && normalize(w.label()).equals(normalize(activityName)));
+    }
+
     /** Prochaine date (aujourd'hui inclus) tombant sur le jour de semaine demandé. */
-    private LocalDate nextOccurrence(DayOfWeek day) {
+    public LocalDate nextOccurrence(DayOfWeek day) {
         LocalDate d = LocalDate.now(zone());
         while (d.getDayOfWeek() != day) {
             d = d.plusDays(1);
@@ -224,10 +279,7 @@ public class BookingService {
     }
 
     public List<DesiredClass> desiredFor(LocalDate target) {
-        if (props.schedule() == null) {
-            return List.of();
-        }
-        return props.schedule().getOrDefault(target.getDayOfWeek(), List.of());
+        return store.forDay(target.getDayOfWeek());
     }
 
     /**

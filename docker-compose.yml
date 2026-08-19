@@ -9,6 +9,16 @@ services:
       # Identifiants de réservation — à définir dans un fichier .env (voir .env.example).
       RESA_EMAIL: ${RESA_EMAIL}
       RESA_PASSWORD: ${RESA_PASSWORD}
+      # Dans le conteneur, il faut écouter sur toutes les interfaces pour que le port
+      # publié soit joignable. L'IHM n'a AUCUNE authentification : la restriction est
+      # faite côté hôte par le mapping 127.0.0.1 ci-dessous.
+      SERVER_ADDRESS: 0.0.0.0
+    ports:
+      # IHM accessible uniquement depuis l'hôte : http://localhost:8080
+      - "127.0.0.1:8080:8080"
+    volumes:
+      # Planning édité depuis l'IHM (persisté hors de l'image).
+      - ./data:/app/data
     # Le planificateur tourne en continu : pas de mode CLI par défaut.
     # Pour un test ponctuel, surcharge la commande, ex. :
     #   docker compose run --rm resa-bot --dry-run

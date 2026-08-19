@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<!--/*
+  Écran 2 — le planning RÉEL du club, tel que renvoyé par Resamania (DWR), pour une date.
+  Chaque lecture = une connexion complète : le service met le résultat en cache 2 min,
+  d'où le bouton « Rafraîchir ».
+*/-->
+<html xmlns:th="http://www.thymeleaf.org" lang="fr">
+<head th:replace="~{fragments :: head('planning du club')}"></head>
+<body>
+<header th:replace="~{fragments :: nav('planning')}"></header>
+
+<main>
+    <h1>Planning du club</h1>
+
+    <div class="datebar">
+        <a class="btn" th:href="@{/planning(date=${prev})}">&larr; Jour précédent</a>
+        <form method="get" th:action="@{/planning}">
+            <input type="date" name="date" th:value="${date}" aria-label="Date"/>
+            <button type="submit">Voir</button>
+        </form>
+        <a class="btn" th:href="@{/planning(date=${next})}">Jour suivant &rarr;</a>
+        <a class="btn" th:href="@{/planning(date=${date}, refresh=true)}">Rafraîchir</a>
+    </div>
+
+    <h2 th:text="${dateLabel}">Date</h2>
+    <p class="hint">
+        Les cours dont les réservations ouvrent aujourd'hui sont ceux du
+        <b th:text="${openingDay}">date</b>.
+        «&nbsp;Suivre&nbsp;» ajoute le cours au <a th:href="@{/}">planning auto</a> pour ce jour de
+        la semaine (le nom exact est recopié, donc pas d'erreur de libellé).
+    </p>
+
+    <div th:replace="~{fragments :: flash}"></div>
+
+    <p class="empty" th:if="${#lists.isEmpty(entries)}">Aucune séance pour cette date.</p>
+
+    <table th:unless="${#lists.isEmpty(entries)}">
+        <thead>
+        <tr>
+            <th>Heure</th>
+            <th>Cours</th>
+            <th>Séance</th>
+            <th>Auto</th>
+            <th>Actions</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="e : ${entries}" th:classappend="${e.wanted()} ? 'tracked' : ''">
+            <td class="time" th:text="${e.timeLabel()}">00:00</td>
+            <td th:text="${e.displayName()}">Cours</td>
+            <td class="mono" th:text="${e.sessionId()}">0</td>
+            <td>
+                <span class="badge" th:if="${e.wanted()}">suivi</span>
+            </td>
+            <td class="actions">
+                <form method="post" th:action="@{/planning/book}">
+                    <input type="hidden" name="sessionId" th:value="${e.sessionId()}"/>
+                    <input type="hidden" name="date" th:value="${date}"/>
+                    <button type="submit">Réserver</button>
+                </form>
+                <form method="post" th:action="@{/planning/unbook}">
+                    <input type="hidden" name="sessionId" th:value="${e.sessionId()}"/>
+                    <input type="hidden" name="date" th:value="${date}"/>
+                    <button type="submit" class="danger">Annuler</button>
+                </form>
+                <form method="post" th:action="@{/planning/track}"
+                      th:if="${e.trackable() and !e.wanted()}">
+                    <input type="hidden" name="date" th:value="${date}"/>
+                    <input type="hidden" name="time" th:value="${e.timeLabel()}"/>
+                    <input type="hidden" name="label" th:value="${e.activityName()}"/>
+                    <button type="submit" class="add">Suivre</button>
+                </form>
+            </td>
+        </tr>
+        </tbody>
+    </table>
+</main>
+</body>
+</html>

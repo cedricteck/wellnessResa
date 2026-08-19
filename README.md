@@ -26,6 +26,28 @@ Elle rejoue directement les appels DWR relevés dans la capture HAR de ton compt
    Jours en MAJUSCULES (`MONDAY`..`SUNDAY`), heure `"HH:MM"`. `activity-id` est
    optionnel (sert seulement à départager deux cours à la même heure).
 
+   Ce bloc n'est que la valeur **initiale** : dès la première modification depuis
+   l'IHM, le planning vit dans `data/schedule.json` (chemin réglable via
+   `resa.schedule-file`) et c'est ce fichier qui fait foi. Supprime-le pour
+   repartir du YAML.
+
+## Interface graphique
+
+L'application sert une IHM Thymeleaf sur <http://localhost:8080> (écoute
+restreinte à `127.0.0.1`, cf. `server.address` — **aucune authentification**, ne
+l'expose pas sur le réseau en l'état).
+
+- **Planning auto** (`/`) — les créneaux réservés automatiquement : ajout,
+  modification, suppression, avec l'instant de la prochaine ouverture calculé pour
+  chacun. Chaque changement est persisté puis les déclencheurs hebdomadaires sont
+  reprogrammés à chaud, sans redémarrage.
+- **Planning du club** (`/planning`) — le planning réel renvoyé par Resamania pour
+  une date : réserver ou annuler une séance immédiatement, ou cliquer
+  « Suivre » pour ajouter le cours au planning auto (le libellé exact est recopié,
+  ce qui évite toute erreur de nom). Une lecture = une connexion DWR complète,
+  donc le résultat est mis en cache 2 minutes ; le bouton « Rafraîchir » force le
+  rechargement.
+
 ## Build
 
 ```bash
@@ -33,6 +55,40 @@ mvn clean package
 ```
 
 Produit `target/resa-bot-1.0.0.jar`.
+
+## Add-on Home Assistant
+
+Le dépôt est aussi un dépôt d'add-ons Home Assistant (`repository.yaml` +
+dossier `resa_bot/`). Sur **HAOS ou Supervised** : Paramètres → Modules
+complémentaires → Boutique → ⋮ → Dépôts → `https://github.com/cedricteck/wellnessResa`.
+
+- L'IHM s'affiche dans la barre latérale via l'**ingress** : authentification Home
+  Assistant, aucun port publié sur le réseau local.
+- Les identifiants et les réglages de réservation sont des **options de l'add-on**
+  (onglet Configuration), traduites en propriétés Spring par `resa_bot/run.sh`.
+- Le planning reste un JSON, dans `/data/schedule.json` : persisté par le Supervisor
+  et inclus dans les sauvegardes Home Assistant. Ni base de données, ni historique.
+
+L'add-on compile les sources **depuis GitHub** (le contexte de build d'un add-on est
+son propre dossier, il ne peut pas atteindre `../src`) : pousse tes modifications sur
+`master` avant de reconstruire, et incrémente `version` dans `resa_bot/config.yaml`
+pour déclencher la mise à jour. Détails dans [`resa_bot/DOCS.md`](resa_bot/DOCS.md).
+
+## Derrière un proxy d'entreprise
+
+`DwrClient` utilise `ProxySelector.getDefault()` : le proxy doit donc être passé en
+propriétés système, sinon les appels vers Resamania partent en direct et échouent en
+`HTTP connect timed out`.
+
+```bash
+java -Dhttp.proxyHost=localhost -Dhttp.proxyPort=3128 \
+     -Dhttps.proxyHost=localhost -Dhttps.proxyPort=3128 \
+     -Dhttp.nonProxyHosts='localhost|127.0.0.1' \
+     -jar target/resa-bot-1.0.0.jar
+```
+
+Côté IntelliJ, la configuration de lancement **ResaBot (proxy)**
+(`.idea/runConfigurations/`) porte déjà ces options dans ses *VM options*.
 
 ## Tester AVANT de compter dessus
 
@@ -59,8 +115,9 @@ L'application n'a pas pu être testée contre le site en direct. Procède dans l
 
 ## Mode normal (planifié)
 
-Sans argument, l'application reste en vie et le `@Scheduled` se déclenche à
-**00:00 Europe/Paris** chaque jour pour réserver les cours de J+3 :
+Sans argument, l'application reste en vie, sert l'IHM et programme un déclencheur
+hebdomadaire par créneau, réveillé **J-3 à l'heure exacte du cours** (moins
+`pre-open-lead-seconds` pour être déjà connecté), heure de Paris :
 
 ```bash
 java -jar target/resa-bot-1.0.0.jar
@@ -106,14 +163,24 @@ journalctl -u resa-bot -f      # suivre les logs
 ## Structure
 
 ```
-src/main/java/com/wsc/resabot/
+src/main/java/com/wellness/resa/
   ResaBotApplication.java   # point d'entrée (@EnableScheduling)
   ResaProperties.java       # config liée à application.yml
   DwrClient.java            # appels DWR bas niveau (auth, planning, book…)
   PlanningParser.java       # extraction des séances depuis la réponse DWR
-  SessionInfo.java          # modèle d'une séance
-  BookingService.java       # orchestration + retry
-  BookingScheduler.java     # @Scheduled à minuit
+  SessionInfo.java          # modèle d'une séance (réponse DWR)
+  PlanningEntry.java        # modèle d'une séance pour l'IHM
+  ScheduleStore.java        # planning souhaité, persisté dans data/schedule.json
+  ScheduleChangedEvent.java # signal de reprogrammation à chaud
+  BookingService.java       # orchestration + retry + lecture du planning
+  BookingScheduler.java     # un cron hebdo par créneau (ouverture J-N à l'heure du cours)
+  PlanningController.java   # IHM Thymeleaf (/ et /planning)
+  IngressForwardedPrefixFilter.java  # support de l'ingress Home Assistant
   CliRunner.java            # modes --dry-run / --book-now / --unbook
-src/main/resources/application.yml
+src/main/resources/
+  application.yml
+  templates/                # schedule.html, planning.html, fragments.html
+  static/css/app.css
+repository.yaml             # dépôt d'add-ons Home Assistant
+resa_bot/                   # l'add-on : config.yaml, build.yaml, Dockerfile, run.sh, DOCS.md
 ```

@@ -1,0 +1,48 @@
+name: Resa Bot
+version: "1.0.0"
+slug: resa_bot
+description: Réservation automatique des cours Wellness Sport Club (Resamania / DWR)
+url: https://github.com/cedricteck/wellnessResa/tree/master/resa_bot
+
+arch:
+  - aarch64
+  - amd64
+
+# L'image est construite sur l'appareil (base Home Assistant + JRE), voir build.yaml.
+# Pas de clé "image" : pas de registre à alimenter.
+
+# s6-overlay est fourni par l'image de base : on désactive l'init de Docker.
+init: false
+boot: auto
+startup: application
+
+# L'IHM s'affiche dans la barre latérale, authentifiée par Home Assistant.
+# Aucun port n'est publié : l'interface n'est PAS joignable depuis le réseau local,
+# uniquement à travers Home Assistant.
+ingress: true
+ingress_port: 8080
+panel_icon: mdi:calendar-check
+panel_title: Resa Bot
+
+# Le planning édité depuis l'IHM vit dans /data/schedule.json, que le Supervisor
+# persiste et inclut dans les sauvegardes Home Assistant. Aucun "map" nécessaire.
+
+options:
+  email: ""
+  password: ""
+  timezone: Europe/Paris
+  booking_opens_days_before: 3
+  retry_window_seconds: 180
+  retry_interval_ms: 2000
+  pre_open_lead_seconds: 30
+  log_level: info
+
+schema:
+  email: email
+  password: password
+  timezone: str
+  booking_opens_days_before: int(0,14)
+  retry_window_seconds: int(1,3600)
+  retry_interval_ms: int(200,60000)
+  pre_open_lead_seconds: int(0,600)
+  log_level: list(trace|debug|info|warn|error)

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<!--/*
+  Fragments partagés par les deux écrans. Aucun CDN : tout est servi en local
+  (l'appli tourne souvent sur un poste sans accès sortant libre).
+*/-->
+<html xmlns:th="http://www.thymeleaf.org" lang="fr">
+<head th:fragment="head(title)">
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title th:text="'Resa Bot — ' + ${title}">Resa Bot</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}"/>
+</head>
+<body>
+
+<header th:fragment="nav(active)" class="topbar">
+    <span class="brand">Resa&nbsp;Bot</span>
+    <nav>
+        <a th:href="@{/}" th:classappend="${active == 'schedule'} ? 'on' : ''">Planning auto</a>
+        <a th:href="@{/planning}" th:classappend="${active == 'planning'} ? 'on' : ''">Planning du club</a>
+    </nav>
+</header>
+
+<div th:fragment="flash">
+    <p class="flash ok" th:if="${ok}" th:text="${ok}"></p>
+    <p class="flash err" th:if="${error}" th:text="${error}"></p>
+</div>
+
+</body>
+</html>

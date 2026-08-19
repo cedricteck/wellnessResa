@@ -19,6 +19,11 @@ resa:
   email: ${RESA_EMAIL:yash0302@hotmail.com}
   password: ${RESA_PASSWORD:Jedi17112021!}
 
+  # Fichier de persistance du planning édité depuis l'IHM. S'il existe, il fait
+  # AUTORITÉ sur le bloc "schedule" ci-dessous (qui ne sert alors que de valeur
+  # initiale, au premier démarrage). Supprime-le pour repartir du YAML.
+  schedule-file: data/schedule.json
+
   # Ton planning souhaité. Jours en MAJUSCULES (MONDAY..SUNDAY).
   # - time        : heure de début exacte du cours "HH:MM" (heure locale)
   # - label       : NOM du cours tel qu'il apparaît dans le planning. C'est LUI qui
@@ -34,13 +39,26 @@ resa:
       - time: "17:30"
         label: "Aquabiking Gambetta"
 
-# Application sans serveur web : on n'expose aucune API HTTP.
-spring:
-  main:
-    web-application-type: none
+# IHM d'administration. Aucune authentification n'est prévue : le serveur
+# n'écoute donc QUE sur la boucle locale (http://localhost:8080). Ne l'expose
+# pas sur le réseau sans ajouter d'abord une authentification.
+server:
+  port: 8080
+  address: 127.0.0.1
+  tomcat:
+    # Redirections en chemin relatif ("Location: /planning") au lieu d'une URL absolue
+    # reconstruite depuis le Host interne. Indispensable derrière un proxy qui termine
+    # le TLS (add-on « NGINX Home Assistant SSL proxy ») : une URL absolue renverrait
+    # le navigateur en http:// vers l'adresse interne du conteneur.
+    use-relative-redirects: true
+  servlet:
+    session:
+      # Pas de ";jsessionid=" collé dans les URL : le suivi de session passe
+      # uniquement par le cookie, ce que traversent proprement proxy et ingress.
+      tracking-modes: cookie
 
 logging:
   level:
-    com.wsc.resabot: INFO
+    com.wellness.resa: INFO
   pattern:
     console: "%d{HH:mm:ss} %-5level %logger{0} - %msg%n"

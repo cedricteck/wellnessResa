@@ -22,12 +22,22 @@
     </properties>
 
     <dependencies>
-        <!-- Cœur Spring Boot : fournit @Scheduled, @ConfigurationProperties, le logging.
-             Pas besoin de spring-boot-starter-web : on n'expose aucune API HTTP,
-             on utilise le client HTTP du JDK (java.net.http). -->
+        <!-- Cœur Spring Boot : fournit @Scheduled, @ConfigurationProperties, le logging. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+
+        <!-- IHM d'administration (Thymeleaf) : visualisation et édition du planning.
+             Le dialogue avec Resamania continue d'utiliser le client HTTP du JDK
+             (java.net.http) — starter-web n'est là que pour SERVIR nos pages. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-thymeleaf</artifactId>
         </dependency>
 
         <dependency>

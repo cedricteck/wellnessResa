@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<!--/*
+  Écran 1 — le planning SOUHAITÉ : les créneaux que le bot réservera tout seul.
+  Chaque ligne est un formulaire indépendant (modification), doublé d'un petit
+  formulaire de suppression : on évite ainsi tout JavaScript.
+*/-->
+<html xmlns:th="http://www.thymeleaf.org" lang="fr">
+<head th:replace="~{fragments :: head('planning auto')}"></head>
+<body>
+<header th:replace="~{fragments :: nav('schedule')}"></header>
+
+<main>
+    <h1>Planning auto</h1>
+    <p class="hint">
+        <span th:text="${total}">0</span> créneau(x) surveillé(s).
+        Réservation déclenchée <b>J-<span th:text="${daysBefore}">3</span> à l'heure exacte du cours</b>
+        (fuseau <span th:text="${zone}">Europe/Paris</span>).
+        Toute modification est enregistrée et reprogrammée immédiatement, sans redémarrage.
+    </p>
+
+    <div th:replace="~{fragments :: flash}"></div>
+
+    <section class="day" th:each="d : ${days}">
+        <h2 th:text="${d.label()}">Lundi</h2>
+
+        <p class="empty" th:if="${#lists.isEmpty(d.slots())}">Aucun cours ce jour-là.</p>
+
+        <div class="slot" th:each="s : ${d.slots()}">
+            <form class="slot-edit" method="post" th:action="@{/schedule/update}">
+                <input type="hidden" name="day" th:value="${d.day()}"/>
+                <input type="hidden" name="index" th:value="${s.index()}"/>
+                <input type="time" name="time" th:value="${s.time()}" required aria-label="Heure"/>
+                <input type="text" name="label" th:value="${s.label()}" required
+                       placeholder="Nom exact du cours" aria-label="Nom du cours"/>
+                <input type="text" name="activityId" th:value="${s.activityId()}" class="narrow"
+                       placeholder="activityId" aria-label="activityId optionnel"/>
+                <span class="opening">ouverture&nbsp;: <b th:text="${s.nextOpening()}">—</b></span>
+                <button type="submit">Enregistrer</button>
+            </form>
+            <form method="post" th:action="@{/schedule/delete}">
+                <input type="hidden" name="day" th:value="${d.day()}"/>
+                <input type="hidden" name="index" th:value="${s.index()}"/>
+                <button type="submit" class="danger">Supprimer</button>
+            </form>
+        </div>
+
+        <form class="slot-add" method="post" th:action="@{/schedule/add}">
+            <input type="hidden" name="day" th:value="${d.day()}"/>
+            <input type="time" name="time" required aria-label="Heure du nouveau cours"/>
+            <input type="text" name="label" required placeholder="Nom exact du cours"
+                   aria-label="Nom du nouveau cours"/>
+            <input type="text" name="activityId" class="narrow" placeholder="activityId"
+                   aria-label="activityId optionnel"/>
+            <button type="submit" class="add">+ Ajouter</button>
+        </form>
+    </section>
+
+    <p class="hint">
+        Le <b>nom du cours</b> est ce qui départage deux séances à la même heure : il doit
+        correspondre au libellé du planning du club (casse et espaces indifférents).
+        L'<b>activityId</b> est un filtre optionnel, à éviter — il change d'une semaine à l'autre.
+        Le plus sûr&nbsp;: passer par l'écran <a th:href="@{/planning}">Planning du club</a> et
+        cliquer «&nbsp;Suivre&nbsp;».
+    </p>
+</main>
+</body>
+</html>
